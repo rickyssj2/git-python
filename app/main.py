@@ -2,7 +2,7 @@ import sys
 import os
 import zlib
 import hashlib
-import traceback
+import time
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -59,6 +59,20 @@ def main():
             tree_sha = sys.argv[2]
     elif command == "write-tree":
         print(write_tree(os.getcwd()))
+    elif command == "commit-tree":
+        tree_sha = sys.argv[2]
+        commit_sha = sys.argv[4]
+        message = sys.argv[6]
+
+        content = f'tree {tree_sha}\nparent {commit_sha}\nauthor Aryan <aryanpandey048@gmail.com> {int(time.time())} +0000\ncommitter Aryan <aryanpandey048@gmail.com> {int(time.time())}\n\n{message}\n'
+        size = len(content.encode('utf-8'))
+        commit_object = f'commit {size}\0 {content}'.encode('utf-8')
+        commit_sha = calculate_sha1(commit_object)
+        print(commit_object, file=sys.stderr)
+        print(commit_sha)
+        os.makedirs(f".git/objects/{commit_sha[:2]}", exist_ok=True)
+        with open(f".git/objects/{commit_sha[:2]}/{commit_sha[2:]}", "wb") as f:
+            f.write(zlib.compress(commit_object))
     else:
         raise RuntimeError(f"Unknown command #{command}")
 
