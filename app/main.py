@@ -3,6 +3,8 @@ import os
 import zlib
 import hashlib
 import time
+import requests
+import struct
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -73,6 +75,14 @@ def main():
         os.makedirs(f".git/objects/{commit_sha[:2]}", exist_ok=True)
         with open(f".git/objects/{commit_sha[:2]}/{commit_sha[2:]}", "wb") as f:
             f.write(zlib.compress(commit_object))
+    elif command == "clone":
+        repo_url = sys.argv[2]
+        local_dir = sys.argv[3]
+        git_client = Git_Smart_Client(repo_url, local_dir)
+
+        # Get refs
+        git_client.fetch_refs()
+
     else:
         raise RuntimeError(f"Unknown command #{command}")
 
@@ -156,6 +166,110 @@ def write_tree(path: str):
     with open(f".git/objects/{sha1[:2]}/{sha1[2:]}", "wb") as f:
         f.write(zlib.compress(s))
     return sha1
+
+class Git_Smart_Client:
+    def __init__(self, repo_url, local_dir, branch = "master"):
+        self.repo_url = repo_url
+        self.local_dir = local_dir
+        self.base_url = f"{repo_url}/info/refs?service=git-upload-pack"
+        self.branch = branch
+
+    def fetch_refs(self):
+        """Request the references from the Git server."""
+        print(f"Fetching refs from {self.base_url}...", file=sys.stderr)
+        headers = {'Accept': 'application/x-git-upload-pack-advertisement'}
+        
+        response = requests.get(self.base_url, headers=headers, stream=True)
+        
+        if response.status_code == 200:
+            print("Received refs data...", file=sys.stderr)
+            self.parse_refs(response.content)
+        else:
+            print(f"Failed to fetch refs. HTTP Status Code: {response.status_code}", file=sys.stderr)
+    
+    def parse_refs(self, data):
+        """Parse the refs data to extract the references (branches)."""
+        # Convert the raw binary data into a UTF-8 string
+        try:
+            data_str = data.decode('utf-8')
+        except UnicodeDecodeError:
+            print("Error decoding refs data.")
+            return
+        
+        # Split the data into lines
+        lines = data_str.splitlines()
+
+        # The first line contains the capabilities (for example, "multi_ack_detailed")
+        capabilities = lines[0:2]
+        print(f"Capabilities: {capabilities}")
+
+        # The remaining lines contain the references in the format:
+        # <sha1> <ref-name>
+        refs = []
+        for line in lines[2:-1]:
+            # Split by space, get sha1 and reference name
+            sha1, ref_name = line.split()
+            refs.append((sha1, ref_name))
+
+        # Output the available refs for the user
+        print("Available references:")
+        for sha1, ref_name in refs:
+            print(f"{ref_name} -> {sha1}")
+
+        # Find the reference for the desired branch (e.g., "refs/heads/main")
+        target_ref = f"refs/heads/{self.branch}"
+        for sha1, ref_name in refs:
+            if ref_name == target_ref:
+                print(f"Found target branch '{self.branch}' with commit {sha1}")
+                # Fetch the objects associated with this ref (commit history, etc.)
+                self.fetch_objects(sha1)  # Passing the commit hash for the target branch
+                break
+        else:
+            print(f"Branch '{self.branch}' not found.")
+    
+    def fetch_objects(self, commit_sha1):
+        """Request the objects for the given commit and unpack the packfile."""
+        print(f"Fetching objects for commit {commit_sha1}...")
+        
+        # Construct the URL for fetching the objects (the "git-upload-pack" service)
+        fetch_url = self.repo_url.rstrip(".git") + "/git-upload-pack"
+        
+        # Prepare the request body: a packet requesting objects related to the branch
+        # The body of the request will include the desired commit sha1 and ref info
+        request_body = self.create_request_body(commit_sha1)
+        
+        # Send the POST request with the request body to fetch objects
+        response = requests.post(fetch_url, data=request_body, headers={'Content-Type': 'application/x-git-upload-pack-request'})
+        
+        if response.status_code == 200:
+            print("Received packfile from server...")
+            self.unpack_packfile(response.content)
+        else:
+            print(f"Failed to fetch objects. HTTP Status Code: {response.status_code}")
+    
+    def create_request_body(self, commit_sha1):
+        """Simulate the creation of a request body for fetching objects."""
+        # Normally, the request body would contain the ref to be fetched and the commit hash
+        request_body = b""
+        # Here, we simulate a request body with just the commit SHA1
+        request_body += struct.pack("!I", len(commit_sha1))  # Simulate length prefix for sha1
+        request_body += commit_sha1.encode('utf-8')  # Add the commit hash
+        return request_body
+
+    def unpack_packfile(self, packfile_data):
+        """Unpack the packfile and simulate extracting objects."""
+        print("Unpacking packfile...")
+        
+        # In a real implementation, this part would handle Git's delta compression
+        # and the extraction of objects from the packfile.
+        
+        # For simulation, we'll just pretend the packfile is compressed with zlib.
+        try:
+            decompressed_data = zlib.decompress(packfile_data)
+            print(f"Uncompressed data: {decompressed_data[:100]}")  # Print the first 100 bytes of data
+        except zlib.error:
+            print("Failed to decompress packfile data.")
+            return
 
 if __name__ == "__main__":
     main()
