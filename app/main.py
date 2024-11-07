@@ -248,13 +248,41 @@ class Git_Smart_Client:
             print(f"Failed to fetch objects. HTTP Status Code: {response.status_code}")
     
     def create_request_body(self, commit_sha1):
-        """Simulate the creation of a request body for fetching objects."""
-        # Normally, the request body would contain the ref to be fetched and the commit hash
+        """Create the request body to fetch objects for the given commit."""
         request_body = b""
-        # Here, we simulate a request body with just the commit SHA1
-        request_body += struct.pack("!I", len(commit_sha1))  # Simulate length prefix for sha1
-        request_body += commit_sha1.encode('utf-8')  # Add the commit hash
+
+        # First part: capabilities
+        command = b"command=fetch"
+        no_progress = b"0001no-progress"
+        # request_body += struct.pack(">I", len(command) + 1) + command + struct.pack(">I", len(no_progress) + 1) + no_progress
+        
+        # "want" line: request for objects related to the commit sha1 and ref name
+        ref_name = f"refs/heads/{self.branch}"
+        want_line = f"want {commit_sha1}\n".encode('utf-8')
+        request_body += self.encode_pkt_line(want_line)
+
+        # Optional: Add "have" lines (commits we already know about)
+        have_lines = []  # Add your 'have' lines here, for example, [(sha1, ref_name), ...]
+        for sha1, ref_name in have_lines:
+            have_line = f"have {sha1} {ref_name}\n".encode('utf-8')
+            request_body += self.encode_pkt_line(have_line)
+
+        # add the "0000" to indicate the end of the request stream
+        done_flush = b"0000"
+        request_body += done_flush
+
+        # Finally, add "done" line
+        done_line = b"0009done\n"
+        request_body += done_line
+        
+        print(request_body)
         return request_body
+
+    def encode_pkt_line(self, line):
+        """Encode a single pkt-line with a length prefix (4 hex digits)."""
+        length = len(line)
+        length_hex = f"{length:04x}".encode('utf-8')  # Convert length to 4-digit hex
+        return length_hex + line
 
     def unpack_packfile(self, packfile_data):
         """Unpack the packfile and simulate extracting objects."""
